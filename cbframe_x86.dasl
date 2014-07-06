@@ -1,0 +1,214 @@
+--go@ luajit dynasm.lua *
+--go@ luajit cbframe.lua
+local ffi = require'ffi'
+local dasm = require'dasm'
+require'cbframe_x86_h'
+
+|.arch ARCH
+|.actionlist actions
+|.globalnames globalnames
+
+local slotnum = 1024
+g_regdump = ffi.new'RegDump' --global temp. memory for dumping registers
+g_callbacks = ffi.new('void*[?]', slotnum) --global array of ffi callback pointers
+
+local Dst, globals = dasm.new(actions)
+
+local regdump = ffi.cast('void*', g_regdump)
+
+--make callback slots
+Dst:growpc(slotnum)
+for i=0,slotnum-1 do
+	|=>i:
+	|	push i
+	|	jmp ->main
+end
+
+--raw float converter (dumper uses it)
+|->cvt80to64:
+|.if X86
+|	mov eax, dword [esp+4]
+|	fld tword [eax]
+|.else
+|	nop
+|.endif
+|	ret
+
+|->main:
+|
+|.if X86
+|	--save EFLAGS and GPRs
+|	pushfd
+|	push eax
+|	.type MD, RegDump, eax
+|	mov eax, regdump
+|	mov MD.ECX, ecx
+|	mov MD.EDX, edx
+|	mov MD.ESI, esi
+|	mov MD.EDI, edi
+|	mov MD.EBP, ebp
+|	mov ecx, eax
+|	pop eax --initial eax
+|	mov MD:ecx.EAX, eax
+|	mov eax, ecx
+|	pop ecx --initial eflags
+|	mov MD.EFLAGS, ecx
+|  pop ecx --callback slot number
+|	mov MD.ESP, esp --esp has initial value now
+|	--save FPU/MMX and SSE state in one shot
+|	fxsave MD.FCW
+|	--call the user callback
+|  mov edx, g_callbacks
+|  shl ecx, 2
+|  add edx, ecx --callbacks + (slot number << 2) = callback pointer
+|	push eax
+|  call dword [edx]
+|	pop eax
+|	--load EFLAGS and GPRs
+|	push dword MD.EFLAGS
+|	popfd
+|	mov ecx, MD.ECX
+|	mov edx, MD.EDX
+|	mov esi, MD.ESI
+|	mov edi, MD.EDI
+|	mov ebp, MD.EBP
+|	mov esp, MD.ESP
+|	mov eax, MD.EAX
+|	ret
+|.else
+|	--save EFLAGS and GPRs
+|	pushfq
+|	push rax
+|	.type MD, RegDump, rax
+|	mov64 rax, ffi.cast('void*', g_regdump)
+|	mov MD.RBX, rbx
+|	mov MD.RCX, rcx
+|	mov MD.RDX, rdx
+|	mov MD.RSI, rsi
+|	mov MD.RDI, rdi
+|	mov MD.RBP, rbp
+|	mov rcx, rax
+|	pop rax
+|	mov MD:rcx.RAX, rax
+|	mov rax, rcx
+|	pop rcx
+|	mov MD.EFLAGS, rcx
+|  pop rcx --callback slot number
+|	mov MD.RSP, rsp --rsp has initial value now
+|	mov MD.R8,  r8
+|	mov MD.R9,  r9
+|	mov MD.R10, r10
+|	mov MD.R11, r11
+|	mov MD.R12, r12
+|	mov MD.R13, r13
+|	mov MD.R14, r14
+|	mov MD.R15, r15
+|	--call the user callback
+|  mov64 rdx, g_callbacks
+|  shl rcx, 3
+|  add rdx, rcx --callbacks + (slot number << 3) = callback pointer
+|.if WINDOWS
+|	mov rcx, rax --Win x64 ABI: ptr arg 1 in rcx
+|.else
+|	mov rdi, rax --SysV x64 ABI: ptr arg 1 in rdi
+|.endif
+|	call [rdx]
+|	--load FPU/MMX and SSE state in one shot
+|	fxrstor MD.FCW
+|	--load EFLAGS and GPRs
+|	push qword MD.EFLAGS
+|	popfq
+|	mov rbx, MD.RBX
+|	mov rcx, MD.RCX
+|	mov rdx, MD.RDX
+|	mov rsi, MD.RSI
+|	mov rdi, MD.RDI
+|	mov rbp, MD.RBP
+|	mov rsp, MD.RSP
+|	mov r8,  MD.R8
+|	mov r9,  MD.R9
+|	mov r10, MD.R10
+|	mov r11, MD.R11
+|	mov r12, MD.R12
+|	mov r13, MD.R13
+|	mov r14, MD.R14
+|	mov r15, MD.R15
+|	mov rax, MD.RAX
+|	ret
+|.endif
+
+--build the code and get the globals
+
+g_buf, g_sz = Dst:build() --dasm.dump(g_buf, g_sz)
+local globals = dasm.globals(globals, globalnames)
+
+--raw float converter
+
+local cvt80to64 = ffi.cast('double(*)(uint8_t*)', globals.cvt80to64)
+
+--cb slot management
+
+local freeslots = {}
+for i=0,slotnum-1 do
+	freeslots[i] = true
+end
+
+local function getslot()
+	return assert(next(freeslots), 'no free slots')
+end
+
+local function setslot(slot, cb)
+	g_callbacks[slot] = cb
+	freeslots[slot] = nil
+	return Dst:getpclabel(slot, g_buf)
+end
+
+local function freeslot(slot)
+	g_callbacks[slot] = nil
+	freeslots[slot] = true
+end
+
+--cb API
+
+local cb = {}
+local cbmeta = {__index = cb}
+
+function cb.new(func)
+	local cb = setmetatable({slot = getslot()}, cbmeta)
+	cb:set(func)
+	return cb
+end
+
+local fficb_ct = ffi.typeof'void(*)(RegDump*)'
+function cb:set(func)
+	if not func then
+		error('function expected, got '..type(func))
+	end
+	if not self.slot then
+		self.slot = getslot()
+	end
+	if self.fficb then
+		self.fficb:free()
+	end
+	self.fficb = ffi.cast(fficb_ct, func)
+	self.ptr = setslot(self.slot, self.fficb)
+end
+
+function cb:free()
+	if self.fficb then
+		self.fficb:free()
+		self.fficb = nil
+	end
+	if self.slot then
+		freeslot(self.slot)
+		self.slot = nil
+	end
+end
+
+--module API
+
+return {
+	cvt80to64 = cvt80to64,
+	new = cb.new,
+}
+
