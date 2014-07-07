@@ -1,6 +1,5 @@
 local ffi = require'ffi'
-require'cbframe_x86_h'
-require'dynasm'
+local cbframe = require'cbframe'
 local cvt80to64 = require'cbframe_x86'.cvt80to64
 
 local EFLAGS = {
@@ -104,7 +103,7 @@ local function isnanf(d)
 	return bit.band(d.u, 0x7fffffff) + (d.lo.u ~= 0 and 1 or 0) > 0x7ff00000
 end
 
-local function dump(rd)
+function cbframe.dump(rd)
 
 	local function out_qwords(qwords)
 		local fmt = '%-8s 0x%08X%08X %19s %16d %16d %19s %19s %8d %8d %8d %8d\n'
@@ -271,7 +270,6 @@ end
 
 if not ... then
 	local rd = ffi.new'RegDump'
-	dump(rd)
+	cbframe.dump(rd)
 end
 
-return dump

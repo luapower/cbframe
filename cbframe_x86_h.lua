@@ -1,6 +1,4 @@
-local ffi = require'ffi'
-
-ffi.cdef[[
+local ffi = require'ffi';local x86 = ffi.arch == 'x86'; local x64 = ffi.arch == 'x64'; ffi.cdef([[
 typedef union __attribute__((__packed__)) D_BYTE {
 	uint8_t  b;
 	uint8_t  u;
@@ -23,6 +21,13 @@ typedef union __attribute__((__packed__)) D_DWORD {
 	uint32_t u;
 	int32_t  s;
 	float    f;
+]]..(x86 and [[
+	void*     p;
+	D_BYTE*   bp;
+	D_WORD*   wp;
+	union D_DWORD* dwp;
+	union D_QWORD* qp;
+]] or '')..[[
 } D_DWORD;
 
 typedef union __attribute__((__packed__)) D_QWORD {
@@ -34,6 +39,13 @@ typedef union __attribute__((__packed__)) D_QWORD {
 	uint64_t uval;
 	int64_t  sval;
 	double   fval;
+]]..(x64 and [[
+	void*     p;
+	D_BYTE*   bp;
+	D_WORD*   wp;
+	D_DWORD*  dwp;
+	struct D_QWORD* qp;
+]]	or '')..[[
 } D_QWORD;
 
 typedef union __attribute__((__packed__)) D_DQWORD {
@@ -191,30 +203,27 @@ typedef struct __attribute__((aligned (16))) D_FXSAVE {
 	D_FCW      FCW;
 	D_FSW      FSW;
 	D_FTWX     FTWX;
-	uint8_t    _fxsave_1;
+	uint8_t    __1;
 	uint16_t   FOP;
-	union {
-		struct {
-			uint32_t  FIP;
-			uint16_t  FCS;
-			uint16_t  _1;
-			uint32_t  FDP;
-			uint16_t  FDS;
-			uint16_t  _2;
-		} x86;
-		struct {
-			uint64_t  FIP;
-			uint64_t  FDP;
-		} x64;
-	};
+]]..(x86 and [[
+	uint32_t   FIP;
+	uint16_t   FCS;
+	uint16_t   ___1;
+	uint32_t   FDP;
+	uint16_t   FDS;
+	uint16_t   ___2;
+]] or [[
+	uint64_t   FIP;
+	uint64_t   FDP;
+]])..[[
 	D_MXCSR    MXCSR;
-	uint32_t   MXCSR_MASK;
+	D_MXCSR    MXCSR_MASK;
 	D_FPRX     FPR[8]; // in TOS-independent order
 	D_DQWORD   XMM[16];
-	uint8_t    _fxsave_2[96];
+	uint8_t    __2[96];
 } D_FXSAVE;
 
-typedef struct RegDump {
+typedef struct D_CPUSTATE {
 	union {
 		D_QWORD GPR[16];
 		struct { D_QWORD RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15; };
@@ -222,8 +231,8 @@ typedef struct RegDump {
 	};
 	D_EFLAGS EFLAGS;
 	D_FXSAVE;
-} RegDump;
-]]
+} D_CPUSTATE;
+]])
 
 assert(ffi.sizeof('D_BYTE') == 1)
 assert(ffi.sizeof('D_WORD') == 2)

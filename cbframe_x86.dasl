@@ -9,12 +9,12 @@ require'cbframe_x86_h'
 |.globalnames globalnames
 
 local slotnum = 1024
-g_regdump = ffi.new'RegDump' --global temp. memory for dumping registers
+g_cpudump = ffi.new'D_CPUSTATE' --global temp. memory for dumping the CPU state
 g_callbacks = ffi.new('void*[?]', slotnum) --global array of ffi callback pointers
 
 local Dst, globals = dasm.new(actions)
 
-local regdump = ffi.cast('void*', g_regdump)
+local cpudump = ffi.cast('void*', g_cpudump)
 
 --make callback slots
 Dst:growpc(slotnum)
@@ -40,8 +40,8 @@ end
 |	--save EFLAGS and GPRs
 |	pushfd
 |	push eax
-|	.type MD, RegDump, eax
-|	mov eax, regdump
+|	.type MD, D_CPUSTATE, eax
+|	mov eax, cpudump
 |	mov MD.ECX, ecx
 |	mov MD.EDX, edx
 |	mov MD.ESI, esi
@@ -80,7 +80,7 @@ end
 |	pushfq
 |	push rax
 |	.type MD, RegDump, rax
-|	mov64 rax, ffi.cast('void*', g_regdump)
+|	mov64 rax, cpudump
 |	mov MD.RBX, rbx
 |	mov MD.RCX, rcx
 |	mov MD.RDX, rdx
@@ -168,47 +168,62 @@ local function freeslot(slot)
 	freeslots[slot] = true
 end
 
---cb API
+--cbframe API
 
-local cb = {}
-local cbmeta = {__index = cb}
+local fficb_ct = ffi.typeof'void(*)(D_CPUSTATE*)'
+local cbframe_ct = ffi.typeof('struct { $ ffiptr; int slot; void* p; }', fficb_ct)
+local cbframe = {}
+ffi.metatype(cbframe_ct, {__index = cbframe})
 
-function cb.new(func)
-	local cb = setmetatable({slot = getslot()}, cbmeta)
-	cb:set(func)
-	return cb
+function cbframe.new(func)
+	local self = cbframe_ct()
+	self.slot = getslot()
+	return self:set(func)
 end
 
-local fficb_ct = ffi.typeof'void(*)(RegDump*)'
-function cb:set(func)
+local fficbs = {} --{cbframe = fficb}
+
+function cbframe:set(func)
 	if not func then
 		error('function expected, got '..type(func))
 	end
-	if not self.slot then
+	if self.slot == -1 then
 		self.slot = getslot()
 	end
-	if self.fficb then
-		self.fficb:free()
+	if self.ffiptr ~= nil then
+		fficbs[self]:free()
 	end
-	self.fficb = ffi.cast(fficb_ct, func)
-	self.ptr = setslot(self.slot, self.fficb)
+	local fficb = ffi.cast(fficb_ct, func)
+	fficbs[self] = fficb
+	self.ffiptr = fficb
+	self.p = setslot(self.slot, self.ffiptr)
+	return ffi.gc(self, self.free)
 end
 
-function cb:free()
-	if self.fficb then
-		self.fficb:free()
-		self.fficb = nil
+function cbframe:free()
+	if self.ffiptr ~= nil then
+		fficbs[self]:free()
+		fficbs[self] = nil
+		self.ffiptr = nil
 	end
-	if self.slot then
+	if self.slot ~= -1 then
 		freeslot(self.slot)
-		self.slot = nil
+		self.slot = -1
 	end
+	ffi.gc(self, nil)
 end
 
 --module API
 
-return {
+local autoload = {dump = 'cbframe_dump'}
+
+return setmetatable({
 	cvt80to64 = cvt80to64,
-	new = cb.new,
-}
+	new = cbframe.new,
+}, {__index = function(t,k)
+	if autoload[k] then
+		require(autoload[k])
+	end
+	return rawget(t, k)
+end})
 
