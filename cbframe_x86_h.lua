@@ -1,4 +1,8 @@
-local ffi = require'ffi';local x86 = ffi.arch == 'x86'; local x64 = ffi.arch == 'x64'; ffi.cdef([[
+local ffi = require'ffi'
+local x86 = ffi.arch == 'x86'
+local x64 = ffi.arch == 'x64'
+
+ffi.cdef([[
 typedef union __attribute__((__packed__)) D_BYTE {
 	uint8_t  b;
 	uint8_t  u;
@@ -17,7 +21,7 @@ typedef union __attribute__((__packed__)) D_DWORD {
 	D_BYTE   bytes[4];
 	D_WORD   words[2];
 	struct { D_WORD lo, hi; };
-	uint8_t  bval[4];
+	uint8_t  b[4];
 	uint32_t u;
 	int32_t  s;
 	float    f;
@@ -35,16 +39,16 @@ typedef union __attribute__((__packed__)) D_QWORD {
 	D_WORD   words[4];
 	D_DWORD  dwords[2];
 	struct { D_DWORD lo, hi; };
-	uint8_t  bval[8];
-	uint64_t uval;
-	int64_t  sval;
-	double   fval;
+	uint8_t  b[8];
+	uint64_t u;
+	int64_t  s;
+	double   f;
 ]]..(x64 and [[
 	void*     p;
 	D_BYTE*   bp;
 	D_WORD*   wp;
 	D_DWORD*  dwp;
-	struct D_QWORD* qp;
+	union D_QWORD* qp;
 ]]	or '')..[[
 } D_QWORD;
 
@@ -54,7 +58,7 @@ typedef union __attribute__((__packed__)) D_DQWORD {
 	D_DWORD  dwords[4];
 	D_QWORD  qwords[2];
 	struct { D_QWORD lo, hi; };
-	uint8_t  bval[16];
+	uint8_t  b[16];
 } D_DQWORD;
 
 typedef union __attribute__((__packed__)) D_TWORD {
@@ -66,7 +70,7 @@ typedef union __attribute__((__packed__)) D_TWORD {
 			uint16_t sign: 1;
 		};
 	};
-	uint8_t  bval[10];
+	uint8_t  b[10];
 } D_TWORD;
 
 typedef union __attribute__((__packed__)) D_EFLAGS {

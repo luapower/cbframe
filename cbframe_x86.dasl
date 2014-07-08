@@ -16,21 +16,36 @@ local Dst, globals = dasm.new(actions)
 
 local cpudump = ffi.cast('void*', g_cpudump)
 
---make callback slots
-Dst:growpc(slotnum)
-for i=0,slotnum-1 do
-	|=>i:
-	|	push i
-	|	jmp ->main
-end
-
---raw float converter (dumper uses it)
-|->cvt80to64:
+--raw float -> double converter: `double(__cdecl*)(const uint8_t*)`
+|->float80to64:
 |.if X86
-|	mov eax, dword [esp+4]
-|	fld tword [eax]
+|	mov eax, dword [esp+4]     --arg1      -> eax
+|	fld tword [eax]            --*arg1     -> push st0
+|.elif WINDOWS
+|	fld tword [rdx]            --*arg1     -> push st0
+|	fstp qword [rsp-8]         --pop st0   -> local
+|	movq xmm0, qword [rsp-8]   --local     -> retval
 |.else
-|	nop
+|	fld tword [rdi]            --*arg1     -> push st0
+|	fstp qword [rsp-8]         --pop st0   -> local
+|	movq xmm0, qword [rsp-8]   --local     -> retval
+|.endif
+|	ret
+
+--double -> raw float converter: `void(__cdecl*)(double, uint8_t*)`
+|->float64to80:
+|.if X86
+|	fld qword [esp+4]          --arg1      -> push st0
+|	mov eax, dword [esp+12]    --arg2      -> eax
+|	fstp tword [eax]           --*arg2     -> pop st0
+|.elif WINDOWS
+|	movlps qword [rsp-8], xmm0 --arg1      -> local
+|	fld qword [rsp-8]          --local     -> push st0
+|	fstp tword [rdx]           --pop st0   -> *arg2 (ptr arg 1)
+|.else
+|	movlps qword [rsp-8], xmm0 --arg1      -> local
+|	fld qword [rsp-8]          --local     -> push st0
+|	fstp tword [rdi]           --pop st0   -> *arg2 (ptr arg 1)
 |.endif
 |	ret
 
@@ -40,102 +55,129 @@ end
 |	--save EFLAGS and GPRs
 |	pushfd
 |	push eax
-|	.type MD, D_CPUSTATE, eax
+|	.type CPU, D_CPUSTATE, eax
 |	mov eax, cpudump
-|	mov MD.ECX, ecx
-|	mov MD.EDX, edx
-|	mov MD.ESI, esi
-|	mov MD.EDI, edi
-|	mov MD.EBP, ebp
+|	mov CPU.ECX, ecx
+|	mov CPU.EDX, edx
+|	mov CPU.ESI, esi
+|	mov CPU.EDI, edi
+|	mov CPU.EBP, ebp
 |	mov ecx, eax
 |	pop eax --initial eax
-|	mov MD:ecx.EAX, eax
+|	mov CPU:ecx.EAX, eax
 |	mov eax, ecx
 |	pop ecx --initial eflags
-|	mov MD.EFLAGS, ecx
-|  pop ecx --callback slot number
-|	mov MD.ESP, esp --esp has initial value now
+|	mov CPU.EFLAGS, ecx
+|	pop ecx --callback slot number
+|	mov CPU.ESP, esp --esp has initial value now
 |	--save FPU/MMX and SSE state in one shot
-|	fxsave MD.FCW
-|	--call the user callback
-|  mov edx, g_callbacks
-|  shl ecx, 2
-|  add edx, ecx --callbacks + (slot number << 2) = callback pointer
-|	push eax
-|  call dword [edx]
-|	pop eax
+|	fxsave CPU.FCW
+|	--call user callback
+|	mov edx, g_callbacks
+|	shl ecx, 2
+|	add edx, ecx --callbacks + (slot number << 2) = callback pointer
+|	push ebp
+|	mov ebp, esp --make call frame
+|	push eax     --arg 1 = CPU
+|	call dword [edx]
+|	pop eax      --restore CPU base address
+|	pop ebp
 |	--load EFLAGS and GPRs
-|	push dword MD.EFLAGS
+|	push dword CPU.EFLAGS
 |	popfd
-|	mov ecx, MD.ECX
-|	mov edx, MD.EDX
-|	mov esi, MD.ESI
-|	mov edi, MD.EDI
-|	mov ebp, MD.EBP
-|	mov esp, MD.ESP
-|	mov eax, MD.EAX
+|	mov ecx, CPU.ECX
+|	mov edx, CPU.EDX
+|	mov esi, CPU.ESI
+|	mov edi, CPU.EDI
+|	mov ebp, CPU.EBP
+|	mov esp, CPU.ESP
+|	mov eax, CPU.EAX
 |	ret
 |.else
 |	--save EFLAGS and GPRs
 |	pushfq
 |	push rax
-|	.type MD, RegDump, rax
+|	.type CPU, D_CPUSTATE, rax
 |	mov64 rax, cpudump
-|	mov MD.RBX, rbx
-|	mov MD.RCX, rcx
-|	mov MD.RDX, rdx
-|	mov MD.RSI, rsi
-|	mov MD.RDI, rdi
-|	mov MD.RBP, rbp
+|	mov CPU.RBX, rbx
+|	mov CPU.RCX, rcx
+|	mov CPU.RDX, rdx
+|	mov CPU.RSI, rsi
+|	mov CPU.RDI, rdi
+|	mov CPU.RBP, rbp
 |	mov rcx, rax
 |	pop rax
-|	mov MD:rcx.RAX, rax
+|	mov CPU:rcx.RAX, rax
 |	mov rax, rcx
 |	pop rcx
-|	mov MD.EFLAGS, rcx
-|  pop rcx --callback slot number
-|	mov MD.RSP, rsp --rsp has initial value now
-|	mov MD.R8,  r8
-|	mov MD.R9,  r9
-|	mov MD.R10, r10
-|	mov MD.R11, r11
-|	mov MD.R12, r12
-|	mov MD.R13, r13
-|	mov MD.R14, r14
-|	mov MD.R15, r15
-|	--call the user callback
-|  mov64 rdx, g_callbacks
-|  shl rcx, 3
-|  add rdx, rcx --callbacks + (slot number << 3) = callback pointer
+|	mov CPU.EFLAGS, rcx
+|	pop rcx --callback slot number
+|	mov CPU.RSP, rsp --rsp has initial value now
+|	mov CPU.R8,  r8
+|	mov CPU.R9,  r9
+|	mov CPU.R10, r10
+|	mov CPU.R11, r11
+|	mov CPU.R12, r12
+|	mov CPU.R13, r13
+|	mov CPU.R14, r14
+|	mov CPU.R15, r15
+|	--save FPU/MMX and SSE state in one shot
+|	fxsave CPU.FCW
+|	--compute callback pointer based on callback slot number in ecx
+|	mov64 rdx, g_callbacks
+|	shl rcx, 3
+|	add rdx, rcx --callbacks + (slot number << 3) = callback pointer
+|	push rax
+|	--set rax = arg1 and call the user callback in rdx
 |.if WINDOWS
-|	mov rcx, rax --Win x64 ABI: ptr arg 1 in rcx
+|	push rbp
+|	mov rbp, rsp --make call frame
+|	sub rsp, 32  --add shadow space
+|	mov rcx, rax --ptr arg 1 in rcx
+|	call qword [rdx]
+|	add rsp, 32
+|	pop rbp
 |.else
-|	mov rdi, rax --SysV x64 ABI: ptr arg 1 in rdi
+|	push rbx; push r12; push r13; push r14; push r15 --caller-saved
+|	push rbp --stack must be 16byte aligned: we have an odd number of pushes so we're aligned.
+|	mov rbp, rsp --make call frame
+|	mov rdi, rax --ptr arg 1 in rdi
+|	call qword [rdx]
+|	pop rbp
+|	pop r15; pop r14; pop r13; pop r12; pop rbx
 |.endif
-|	call [rdx]
+|	pop rax
 |	--load FPU/MMX and SSE state in one shot
-|	fxrstor MD.FCW
+|	fxrstor CPU.FCW
 |	--load EFLAGS and GPRs
-|	push qword MD.EFLAGS
+|	push qword CPU.EFLAGS
 |	popfq
-|	mov rbx, MD.RBX
-|	mov rcx, MD.RCX
-|	mov rdx, MD.RDX
-|	mov rsi, MD.RSI
-|	mov rdi, MD.RDI
-|	mov rbp, MD.RBP
-|	mov rsp, MD.RSP
-|	mov r8,  MD.R8
-|	mov r9,  MD.R9
-|	mov r10, MD.R10
-|	mov r11, MD.R11
-|	mov r12, MD.R12
-|	mov r13, MD.R13
-|	mov r14, MD.R14
-|	mov r15, MD.R15
-|	mov rax, MD.RAX
+|	mov rbx, CPU.RBX
+|	mov rcx, CPU.RCX
+|	mov rdx, CPU.RDX
+|	mov rsi, CPU.RSI
+|	mov rdi, CPU.RDI
+|	mov rbp, CPU.RBP
+|	mov rsp, CPU.RSP
+|	mov r8,  CPU.R8
+|	mov r9,  CPU.R9
+|	mov r10, CPU.R10
+|	mov r11, CPU.R11
+|	mov r12, CPU.R12
+|	mov r13, CPU.R13
+|	mov r14, CPU.R14
+|	mov r15, CPU.R15
+|	mov rax, CPU.RAX
 |	ret
 |.endif
+
+--make callback slots
+Dst:growpc(slotnum)
+for i=0,slotnum-1 do
+	|=>i:
+	|	push aword i
+	|	jmp ->main
+end
 
 --build the code and get the globals
 
@@ -144,7 +186,8 @@ local globals = dasm.globals(globals, globalnames)
 
 --raw float converter
 
-local cvt80to64 = ffi.cast('double(*)(uint8_t*)', globals.cvt80to64)
+local float80to64 = ffi.cast('double(__cdecl*)(const uint8_t*)', globals.float80to64)
+local float64to80 = ffi.cast('void(__cdecl*)(double, uint8_t*)', globals.float64to80)
 
 --cb slot management
 
@@ -218,7 +261,8 @@ end
 local autoload = {dump = 'cbframe_dump'}
 
 return setmetatable({
-	cvt80to64 = cvt80to64,
+	float80to64 = float80to64,
+	float64to80 = float64to80,
 	new = cbframe.new,
 }, {__index = function(t,k)
 	if autoload[k] then

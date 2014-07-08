@@ -1,6 +1,5 @@
 local ffi = require'ffi'
 local cbframe = require'cbframe'
-local cvt80to64 = require'cbframe_x86'.cvt80to64
 
 local EFLAGS = {
 	title = 'FLAGS', stitle = 'FLAGS', mdfield = 'EFLAGS',
@@ -112,19 +111,19 @@ function cbframe.dump(rd)
 		hr()
 		for name, qword in qwords() do
 			out(_(fmt, name,
-				qword.hi.uval,
-				qword.lo.uval,
-				isnan(qword) and 'nan' or _('%19g', qword.fval),
-				qword.hi.sval,
-				qword.lo.sval,
-				isnanf(qword.hi) and 'nan' or _('%19g', qword.hi.fval),
-				isnanf(qword.lo) and 'nan' or _('%19g', qword.lo.fval),
-				qword.hi.hi.sval,
-				qword.hi.lo.sval,
-				qword.lo.hi.sval,
-				qword.lo.lo.sval))
+				qword.hi.u,
+				qword.lo.u,
+				isnan(qword) and 'nan' or _('%19g', qword.f),
+				qword.hi.s,
+				qword.lo.s,
+				isnanf(qword.hi) and 'nan' or _('%19g', qword.hi.f),
+				isnanf(qword.lo) and 'nan' or _('%19g', qword.lo.f),
+				qword.hi.hi.s,
+				qword.hi.lo.s,
+				qword.lo.hi.s,
+				qword.lo.lo.s))
 		end
-		out'\n'
+		--out'\n'
 	end
 
 	local function out_dwords(dwords)
@@ -172,7 +171,7 @@ function cbframe.dump(rd)
 		out_dwords(function()
 			return coroutine.wrap(function()
 				local n = x64 and 16 or 8
-				for i=0,n do
+				for i=0,n-1 do
 					for j=0,3 do
 						coroutine.yield('xmm'..i..'.d'..j, rd.XMM[i].dwords[j])
 					end
@@ -215,10 +214,16 @@ function cbframe.dump(rd)
 		return bit.band(v, bit.lshift(1, n)) ~= 0
 	end
 
+	local function tohex(s, upper)
+		return (s:gsub('.', function(c)
+		  return string.format('%02x', string.byte(c))
+		end))
+	end
+
 	local function out_streg(rd, n, k)
 		if not getbit(7-n, rd.FTWX.val) then return end
-		out(_('st(%d)   ', n), _('%s    ', glue.tohex(ffi.string(rd.FPR[k].bytes, 10))),
-			_('%g', cvt80to64(rd.FPR[k].bval)), '\n')
+		out(_('st(%d)   ', n), _('%s    ', tohex(ffi.string(rd.FPR[k].bytes, 10))),
+			_('%g', cbframe.float80to64(rd.FPR[k].b)), '\n')
 	end
 
 	local function out_fpr(rd)
@@ -269,7 +274,15 @@ function cbframe.dump(rd)
 end
 
 if not ... then
-	local rd = ffi.new'RegDump'
-	cbframe.dump(rd)
+	local cpu = ffi.new'D_CPUSTATE'
+	cpu.EAX.u = 12345
+	cpu.ESI.u = 67890
+	cpu.XMM[5].lo.lo.u = 123456
+	cpu.XMM[5].lo.hi.u = 789012
+	cpu.XMM[5].hi.lo.u = 120987
+	cpu.XMM[5].hi.hi.u = 654321
+	cbframe.float64to80(1/16,   cpu.FPR[3].b); cpu.FTWX.FP3 = 1
+	cbframe.float64to80(1e-234, cpu.FPR[5].b); cpu.FTWX.FP5 = 1
+	cbframe.dump(cpu)
 end
 
