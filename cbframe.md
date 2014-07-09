@@ -26,8 +26,8 @@ discover where the arguments are on a case-by-case basis by inspecting the CPU s
 If in doubt, use [Agner Fog](http://www.agner.org/optimize/calling_conventions.pdf) (ABIs are a bitch).
 
 Like ffi callbacks, cbframes are limited resources. You can create up to 1024
-simultaneous cbframe objects (and you can change that limit in the code -
-one callback slot is 7 bytes).
+simultaneous cbframe objects (you can change that limit in the code - callback slots must be pre-allocated;
+each callback slot is 7 bytes).
 
 The API is simple. You don't even have to provide the function signature :)
 
