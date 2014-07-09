@@ -33,9 +33,9 @@ The API is simple. You don't even have to provide the function signature :)
 
 ~~~{.lua}
 local foo = cbframe.new(function(cpu)
-	cbframe.dump(cpu)       --inspect the CPU state
-	local arg1 = cpu.RDI.s  --Linux/x64 ABI: int arg#1 in RDI
-	cpu.RAX.s = arg1^2      --Linux/x64 ABI: return value in RAX
+	cbframe.dump(cpu)          --inspect the CPU state
+	local arg1 = cpu.RDI.lo.i  --Linux/x64 ABI: int32 arg#1 in RDI
+	cpu.RAX.u = arg1^2         --Linux/x64 ABI: uint64 return value in RAX
 end)
 
 --foo is the callback object, foo.p is the actual function pointer to use.
