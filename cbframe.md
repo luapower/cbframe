@@ -3,42 +3,45 @@ project: cbframe
 tagline: callback frames for luajit
 ---
 
-Cbframe is a low-level helper module for the luajit ffi for creating ABI-agnostic callbacks.
-I made it as a workaround for the problem of creating callbacks that accept pass-by-value
-struct args and return values.
+## `local cbframe = require'cbframe'`
 
-The idea is simple: your callbacks receive the full state of the CPU (all registers, and CPU flags even),
+Cbframe is a low-level helper module for the luajit ffi for creating ABI-agnostic callbacks.
+I made it as a workaround for the problem of creating callbacks with pass-by-value struct
+args and return values in [objc].
+
+The idea is simple: your callbacks receive the [full state of the CPU] (all registers, and CPU flags even),
 you can modify the state any way you want, and the CPU will be set with the modified state before the
 callback returns. It's up to you to pick the function arguments from the right registers and/or stack,
-and to put the return value into the right registers and/or stack, according to the ABI rules of your
-platform/compiler.
+and to put the return value into the right registers and/or stack, according to the calling convention
+rules for your platform/compiler.
 
-> To change the stack, update the memory around ESP (RSP) directly, and update ESP (RSP).
+[full state of the CPU]: https://github.com/luapower/cbframe/blob/master/cbframe_x86_h.lua
 
-You can implement a full ABI on top of it, or if you only have a few problematic callbacks
-to work out, you can discover how arguments are passed on a case-by-case basis by
-inspecting the CPU state.
+You can use it to implement a full ABI in pure Lua with the help of [ffi_reflect].
+Or, if you only have a few problematic callbacks that you need to work out, like I do, you can
+discover where the arguments are on a case-by-case basis by inspecting the CPU state via
+`cbframe.dump()`.
+If in doubt, use [Agner Fog](http://www.agner.org/optimize/calling_conventions.pdf) (ABIs are a bitch).
 
 Like ffi callbacks, cbframes are limited resources. You can create up to 1024
-simultaneous cbframe objects (and you can change this limit in the code).
+simultaneous cbframe objects (and you can change that limit in the code -
+one callback slot is 7 bytes).
 
-The API is similar to the API for ffi callbacks:
+The API is simple. You don't even have to provide the function signature :)
 
 ~~~{.lua}
-local cbframe = require'cbframe'
-
-local foo_cbframe = cbframe.new(function(cpu)
+local foo = cbframe.new(function(cpu)
 	cbframe.dump(cpu)       --inspect the CPU state
 	local arg1 = cpu.RDI.s  --Linux/x64 ABI: int arg#1 in RDI
 	cpu.RAX.s = arg1^2      --Linux/x64 ABI: return value in RAX
 end)
 
---don't pass cbframe to your callback-setting function, pass cbframe.p instead.
-set_foo_callback(foo_cbframe.p)
+--foo is the callback object, foo.p is the actual function pointer to use.
+set_foo_callback(foo.p)
 
---make a cbframe permanent by untying it from the gc.
-ffi.gc(cbframe, nil)
+--cbframes are permanent by default just like ffi callbacks. tie them to the gc if you want.
+ffi.gc(foo, foo.free)
 
---release the callback slot (or reuse it with cbframe:set(func)).
-cbframe:free()
+--release the callback slot (or reuse it with foo:set(func)).
+foo:free()
 ~~~

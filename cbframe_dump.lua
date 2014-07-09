@@ -2,7 +2,7 @@ local ffi = require'ffi'
 local cbframe = require'cbframe'
 
 local EFLAGS = {
-	title = 'FLAGS', stitle = 'FLAGS', mdfield = 'EFLAGS',
+	title = 'EFLAGS', stitle = 'EFLAGS', mdfield = 'EFLAGS',
 	fields = {'CF', 'PF', 'AF', 'ZF', 'SF', 'TF', 'IF', 'DF', 'OF',
 				'IOPL', 'NT', 'RF', 'VM', 'AC', 'VIF', 'VIP', 'ID'},
 	descr = {
@@ -90,8 +90,9 @@ local MXCSR = {
 local x64 = ffi.arch == 'x64'
 local _ = string.format
 local out = function(...) io.stdout:write(...) end
-local s = ('-'):rep(x64 and 140 or 96)
-local hr = function() out(s, '\n') end
+local s = ('-'):rep(100)
+local outln = function(...) out(...); out'\n' end
+local hr = function() outln(s) end
 
 --https://github.com/Itseez/opencv/blob/master/modules/core/include/opencv2/core/cvdef.h
 local function isnan(q)
@@ -102,48 +103,46 @@ local function isnanf(d)
 	return bit.band(d.u, 0x7fffffff) + (d.lo.u ~= 0 and 1 or 0) > 0x7ff00000
 end
 
-function cbframe.dump(rd)
+function cbframe.dump(cpu, opt_)
+	local opt = {flags = false, qxmm = x64, qstack = x64}
+	if opt_ then for k,v in pairs(opt_) do opt[k] = v end end
 
 	local function out_qwords(qwords)
-		local fmt = '%-8s 0x%08X%08X %19s %16d %16d %19s %19s %8d %8d %8d %8d\n'
-		out(_(            '%-8s %18s %19s %16s %16s %19s %19s %8s %8s %8s %8s\n',
-			'name', '0x', 'd', 'dw1', 'dw0', 'd1', 'd0', 'w3', 'w2', 'w1', 'w0'))
+		local fmt = '%-8s 0x%08X%08X %12s %16d %16d %12s %12s'
+		outln(_(            '%-8s %-18s %12s %16s %16s %12s %12s',
+			'', 'hex', 'double', 'int32.1', 'int32.0', 'float.1', 'float.0'))
 		hr()
 		for name, qword in qwords() do
-			out(_(fmt, name,
+			outln(_(fmt, name,
 				qword.hi.u,
 				qword.lo.u,
-				isnan(qword) and 'nan' or _('%19g', qword.f),
-				qword.hi.s,
-				qword.lo.s,
-				isnanf(qword.hi) and 'nan' or _('%19g', qword.hi.f),
-				isnanf(qword.lo) and 'nan' or _('%19g', qword.lo.f),
-				qword.hi.hi.s,
-				qword.hi.lo.s,
-				qword.lo.hi.s,
-				qword.lo.lo.s))
+				isnan(qword) and 'nan' or _('%12g', qword.f),
+				qword.hi.i,
+				qword.lo.i,
+				isnanf(qword.hi) and 'nan' or _('%12g', qword.hi.f),
+				isnanf(qword.lo) and 'nan' or _('%12g', qword.lo.f)))
 		end
-		--out'\n'
+		outln()
 	end
 
 	local function out_dwords(dwords)
-		local fmt = '%-8s 0x%08X %16d %19s %8d %8d %4d %4d %4d %4d\n'
-		out(_(       '%-8s   %8s %16s %19s %8s %8s %4s %4s %4s %4s\n',
-			'name', '0x', 'dw', 'f', 'w1', 'w0', 'b3', 'b2', 'b1', 'b0'))
+		local fmt = '%-8s 0x%08X %16d %19s %8d %8d %4d %4d %4d %4d'
+		outln(_(       '%-8s   %-8s %16s %19s %8s %8s %4s %4s %4s %4s',
+			'', 'hex', 'int64', 'float', 'int16.1', 'int16.0', 'b3', 'b2', 'b1', 'b0'))
 		hr()
 		for name, dword in dwords() do
-			out(_(fmt, name,
+			outln(_(fmt, name,
 				dword.u,
-				dword.s,
+				dword.i,
 				isnanf(dword) and 'nan' or _('%19g', dword.f),
-				dword.hi.s,
-				dword.lo.s,
-				dword.hi.hi.s,
-				dword.hi.lo.s,
-				dword.lo.hi.s,
-				dword.lo.lo.s))
+				dword.hi.i,
+				dword.lo.i,
+				dword.hi.hi.i,
+				dword.hi.lo.i,
+				dword.lo.hi.i,
+				dword.lo.lo.i))
 		end
-		out'\n'
+		outln()
 	end
 
 	local cpu_regs = x64 and {
@@ -155,57 +154,46 @@ function cbframe.dump(rd)
 		'ESI', 'EDI', 'EBP', 'ESP',
 	}
 
-	local function out_gpr(rd)
+	local function out_gpr(cpu)
 		local out_words = x64 and out_qwords or out_dwords
 		out_words(function()
 			local i = 0
 			return function()
 				i = i + 1
 				if not cpu_regs[i] then return end
-				return cpu_regs[i]:lower(), rd[cpu_regs[i]]
+				return cpu_regs[i]:lower(), cpu[cpu_regs[i]]
 			end
 		end)
 	end
 
-	local function out_xmm_d(rd)
-		out_dwords(function()
+	local function out_xmm(cpu, q)
+		local out_words = q and out_qwords or out_dwords
+		out_words(function()
 			return coroutine.wrap(function()
 				local n = x64 and 16 or 8
 				for i=0,n-1 do
-					for j=0,3 do
-						coroutine.yield('xmm'..i..'.d'..j, rd.XMM[i].dwords[j])
+					if q then
+						for j=0,1 do coroutine.yield('xmm'..i..'.q'..j, cpu.XMM[i].qwords[j]) end
+					else
+						for j=0,3 do coroutine.yield('xmm'..i..'.d'..j, cpu.XMM[i].dwords[j]) end
 					end
 				end
 			end)
 		end)
 	end
 
-	local function out_xmm_q(rd)
-		out_qwords(function()
-			return coroutine.wrap(function()
-				local n = x64 and 16 or 8
-				for i=0,n-1 do
-					for j=0,1 do
-						coroutine.yield('xmm'..i..'.q'..j, rd.XMM[i].qwords[j])
-					end
-				end
-			end)
-		end)
-	end
-
-	local function out_xmm(rd, q)
-		if q then out_xmm_q(rd) else out_xmm_d(rd) end
-	end
-
-	local function out_stack(rd)
-		local out_words = x64 and out_qwords or out_dwords
+	local function out_stack(cpu, q)
+		local out_words = q and out_qwords or out_dwords
 		out_words(function()
 			local i = -1
+			local esp = cpu[x64 and 'RSP' or 'ESP'][q and 'qp' or 'dp']
+			local ebp = cpu[x64 and 'RBP' or 'EBP'][q and 'qp' or 'dp']
+			local n = ebp - esp
 			return function()
 				i = i + 1
-				if i >= rd.stack_size then return end
-				local name = _((x64 and 'r' or 'e')..'sp+%d', tostring(i) * (x64 and 8 or 4))
-				return name, x64 and rd.stack[i] or rd.stack[i].lo
+				if i >= math.min(n, 32) then return end
+				local name = _((x64 and 'r' or 'e')..'sp+%d', i * (q and 8 or 4))
+				return name, esp[i]
 			end
 		end)
 	end
@@ -220,40 +208,40 @@ function cbframe.dump(rd)
 		end))
 	end
 
-	local function out_streg(rd, n, k)
-		if not getbit(7-n, rd.FTWX.val) then return end
-		out(_('st(%d)   ', n), _('%s    ', tohex(ffi.string(rd.FPR[k].bytes, 10))),
-			_('%g', cbframe.float80to64(rd.FPR[k].b)), '\n')
+	local function out_streg(cpu, n, k)
+		if not getbit(7-n, cpu.FTWX.val) then return end
+		outln(_('st(%d)   ', n), _('%s    ', tohex(ffi.string(cpu.FPR[k].bytes, 10))),
+			_('%g', cbframe.float80to64(cpu.FPR[k].b)))
 	end
 
-	local function out_fpr(rd)
+	local function out_fpr(cpu)
 		hr()
 		for i=0,7 do
-			out_streg(rd, i, i)
+			out_streg(cpu, i, i)
 		end
-		out'\n'
+		outln()
 	end
 
 	local function flag_dumper(def)
-		local function longdump(rd)
-			out(_('%s:\n', def.title))
+		local function longdump(cpu)
+			outln(_('%s:', def.title))
 			hr()
-			local mdfield = type(def.mdfield) == 'string' and rd[def.mdfield] or def.mdfield(rd)
+			local mdfield = type(def.mdfield) == 'string' and cpu[def.mdfield] or def.mdfield(cpu)
 			for i,name in ipairs(def.fields) do
-				out(_('%-8s', name), _('%-8d', mdfield[name]), def.descr[name], '\n')
+				outln(_('%-8s', name), _('%-8d', mdfield[name]), def.descr[name])
 			end
-			out'\n'
+			outln()
 		end
-		local function shortdump(rd)
+		local function shortdump(cpu)
 			out(_('%-5s ', def.stitle))
-			local mdfield = type(def.mdfield) == 'string' and rd[def.mdfield] or def.mdfield(rd)
+			local mdfield = type(def.mdfield) == 'string' and cpu[def.mdfield] or def.mdfield(cpu)
 			for i,name in ipairs(def.fields) do
 				out(_('%-2s=%d ', name, mdfield[name]))
 			end
-			out'\n'
+			outln()
 		end
-		return function(rd, long)
-			if long then longdump(rd) else shortdump(rd) end
+		return function(cpu, long)
+			if long then longdump(cpu) else shortdump(cpu) end
 		end
 	end
 
@@ -262,27 +250,44 @@ function cbframe.dump(rd)
 	local out_fcw    = flag_dumper(FCW)
 	local out_mxcsr  = flag_dumper(MXCSR)
 
-	out_gpr(rd)
-	out_fpr(rd)
-	out_xmm(rd, x64 and 1)
-	--out_stack(rd)
+	out_gpr(cpu)
+	out_fpr(cpu)
+	out_xmm(cpu, opt.qxmm)
+	out_stack(cpu, opt.qstack)
 
-	out_eflags(rd)
-	out_mxcsr(rd)
-	out_fsw(rd)
-	out_fcw(rd)
+	if opt.flags then
+		out_eflags(cpu)
+		out_mxcsr(cpu)
+		out_fsw(cpu)
+		out_fcw(cpu)
+	end
 end
 
 if not ... then
 	local cpu = ffi.new'D_CPUSTATE'
+	local stack
+	if x64 then
+		stack = ffi.new'D_QWORD[4]'
+		cpu.RSP.p = stack
+		cpu.RBP.p = stack + 4
+	else
+		stack = ffi.new'D_DWORD[4]'
+		cpu.ESP.p = stack
+		cpu.EBP.p = stack + 4
+	end
+	stack[0].u = 22224444
+	stack[2].u = 0xABCDEF
+	stack[3].f = math.pi
 	cpu.EAX.u = 12345
 	cpu.ESI.u = 67890
+	cpu.XMM[3].lo.f    = math.pi
+	cpu.XMM[4].lo.lo.f = math.pi
 	cpu.XMM[5].lo.lo.u = 123456
 	cpu.XMM[5].lo.hi.u = 789012
 	cpu.XMM[5].hi.lo.u = 120987
 	cpu.XMM[5].hi.hi.u = 654321
 	cbframe.float64to80(1/16,   cpu.FPR[3].b); cpu.FTWX.FP3 = 1
 	cbframe.float64to80(1e-234, cpu.FPR[5].b); cpu.FTWX.FP5 = 1
-	cbframe.dump(cpu)
+	cbframe.dump(cpu, {flags = true})
 end
 

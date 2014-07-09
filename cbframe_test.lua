@@ -34,5 +34,9 @@ local function test_cbframe(cpu)
 end
 
 test_conv()
-test_cbframe()
+--test_cbframe()
 
+
+local cb = cbframe.new(cbframe.dump)
+local cf = ffi.cast('void(__cdecl*)(char, char)', cb.p)
+local ret = cf(111, 122)

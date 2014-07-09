@@ -6,7 +6,7 @@ ffi.cdef([[
 typedef union __attribute__((__packed__)) D_BYTE {
 	uint8_t  b;
 	uint8_t  u;
-	int8_t   s;
+	int8_t   i;
 } D_BYTE;
 
 typedef union __attribute__((__packed__)) D_WORD {
@@ -14,7 +14,7 @@ typedef union __attribute__((__packed__)) D_WORD {
 	struct { D_BYTE lo, hi; };
 	uint8_t  b[2];
 	uint16_t u;
-	int16_t  s;
+	int16_t  i;
 } D_WORD;
 
 typedef union __attribute__((__packed__)) D_DWORD {
@@ -23,13 +23,13 @@ typedef union __attribute__((__packed__)) D_DWORD {
 	struct { D_WORD lo, hi; };
 	uint8_t  b[4];
 	uint32_t u;
-	int32_t  s;
+	int32_t  i;
 	float    f;
 ]]..(x86 and [[
 	void*     p;
 	D_BYTE*   bp;
 	D_WORD*   wp;
-	union D_DWORD* dwp;
+	union D_DWORD* dp;
 	union D_QWORD* qp;
 ]] or '')..[[
 } D_DWORD;
@@ -41,13 +41,13 @@ typedef union __attribute__((__packed__)) D_QWORD {
 	struct { D_DWORD lo, hi; };
 	uint8_t  b[8];
 	uint64_t u;
-	int64_t  s;
+	int64_t  i;
 	double   f;
 ]]..(x64 and [[
 	void*     p;
 	D_BYTE*   bp;
 	D_WORD*   wp;
-	D_DWORD*  dwp;
+	D_DWORD*  dp;
 	union D_QWORD* qp;
 ]]	or '')..[[
 } D_QWORD;

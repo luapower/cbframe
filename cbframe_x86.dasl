@@ -22,7 +22,7 @@ local cpudump = ffi.cast('void*', g_cpudump)
 |	mov eax, dword [esp+4]     --arg1      -> eax
 |	fld tword [eax]            --*arg1     -> push st0
 |.elif WINDOWS
-|	fld tword [rdx]            --*arg1     -> push st0
+|	fld tword [rcx]            --*arg1     -> push st0
 |	fstp qword [rsp-8]         --pop st0   -> local
 |	movq xmm0, qword [rsp-8]   --local     -> retval
 |.else
@@ -76,12 +76,10 @@ local cpudump = ffi.cast('void*', g_cpudump)
 |	mov edx, g_callbacks
 |	shl ecx, 2
 |	add edx, ecx --callbacks + (slot number << 2) = callback pointer
-|	push ebp
 |	mov ebp, esp --make call frame
 |	push eax     --arg 1 = CPU
 |	call dword [edx]
 |	pop eax      --restore CPU base address
-|	pop ebp
 |	--load EFLAGS and GPRs
 |	push dword CPU.EFLAGS
 |	popfd
@@ -130,21 +128,16 @@ local cpudump = ffi.cast('void*', g_cpudump)
 |	push rax
 |	--set rax = arg1 and call the user callback in rdx
 |.if WINDOWS
-|	push rbp
 |	mov rbp, rsp --make call frame
 |	sub rsp, 32  --add shadow space
 |	mov rcx, rax --ptr arg 1 in rcx
 |	call qword [rdx]
 |	add rsp, 32
-|	pop rbp
 |.else
-|	push rbx; push r12; push r13; push r14; push r15 --caller-saved
-|	push rbp --stack must be 16byte aligned: we have an odd number of pushes so we're aligned.
+|	--stack must be 16byte aligned: we have an odd number of pushes so we're aligned.
 |	mov rbp, rsp --make call frame
 |	mov rdi, rax --ptr arg 1 in rdi
 |	call qword [rdx]
-|	pop rbp
-|	pop r15; pop r14; pop r13; pop r12; pop rbx
 |.endif
 |	pop rax
 |	--load FPU/MMX and SSE state in one shot
@@ -218,7 +211,7 @@ local cbframe_ct = ffi.typeof('struct { $ ffiptr; int slot; void* p; }', fficb_c
 local cbframe = {}
 ffi.metatype(cbframe_ct, {__index = cbframe})
 
-function cbframe.new(func)
+local function cbframe_new(func)
 	local self = cbframe_ct()
 	self.slot = getslot()
 	return self:set(func)
@@ -240,7 +233,7 @@ function cbframe:set(func)
 	fficbs[self] = fficb
 	self.ffiptr = fficb
 	self.p = setslot(self.slot, self.ffiptr)
-	return ffi.gc(self, self.free)
+	return self
 end
 
 function cbframe:free()
@@ -258,12 +251,12 @@ end
 
 --module API
 
-local autoload = {dump = 'cbframe_dump'}
+local autoload = {dump = 'cbframe_dump', cast = 'cbframe_abi'}
 
 return setmetatable({
 	float80to64 = float80to64,
 	float64to80 = float64to80,
-	new = cbframe.new,
+	new = cbframe_new,
 }, {__index = function(t,k)
 	if autoload[k] then
 		require(autoload[k])
