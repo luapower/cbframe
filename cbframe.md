@@ -9,6 +9,8 @@ Cbframe is a low-level helper module for the luajit ffi for creating ABI-agnosti
 I made it as a workaround for the problem of creating callbacks with pass-by-value struct
 args and return values in [objc].
 
+Works with x86 and x64 Windows, Linux and OSX.
+
 The idea is simple: your callbacks receive the [full state of the CPU] (all registers, and CPU flags even),
 you can modify the state any way you want, and the CPU will be set with the modified state before the
 callback returns. It's up to you to pick the function arguments from the right registers and/or stack,
