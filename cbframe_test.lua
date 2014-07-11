@@ -9,7 +9,7 @@ local function test_conv()
 	assert(f64 == 1/8)
 end
 
-local function test_cbframe(cpu)
+local function test_multiple(cpu)
 	local function f1(cpu)
 		cbframe.dump(cpu)
 		cpu.RAX.u = 7654321
@@ -33,10 +33,46 @@ local function test_cbframe(cpu)
 	cb2:free()
 end
 
+local function test_speed()
+	local swap
+	if ffi.abi'64bit' then
+		if ffi.os == 'Windows' then return end --TODO: test win64
+		swap = function(cpu)
+			local w = cpu.XMM[0].lo.f
+			local h = cpu.XMM[1].lo.f
+			cpu.XMM[0].lo.f = h
+			cpu.XMM[1].lo.f = w
+		end
+	else
+		swap = function(cpu)
+			local w = cpu.ESP.dp[4].f
+			local h = cpu.ESP.dp[5].f
+			cpu.EAX.f = h
+			cpu.EDX.f = w
+		end
+	end
+	local cb = cbframe.new(swap)
+	if ffi.abi'64bit' then
+		ffi.cdef'typedef struct NSSize {double w, h;} NSSize'
+	else
+		ffi.cdef'typedef struct NSSize {float w, h;} NSSize'
+	end
+	local NSSize = ffi.typeof'NSSize'
+	local cf = ffi.cast('NSSize(__cdecl*)(void*, void*, void*, NSSize)', cb.p)
+
+	local sz = NSSize(149, 49)
+	local p1 = ffi.cast('void*', 0x123)
+	local p2 = ffi.cast('void*', 0x456)
+	local p3 = ffi.cast('void*', 0x789)
+	local ret = NSSize()
+	for i = 1,10^6 do
+		local ret = cf(p1, p2, p3, sz)
+		assert(ret.w == sz.h)
+		assert(ret.h == sz.w)
+	end
+	print'10^6 calls + checks'
+end
+
 test_conv()
---test_cbframe()
-
-
-local cb = cbframe.new(cbframe.dump)
-local cf = ffi.cast('void(__cdecl*)(char, char)', cb.p)
-local ret = cf(111, 122)
+test_multiple()
+test_speed()

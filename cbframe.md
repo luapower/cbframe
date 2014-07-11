@@ -47,3 +47,8 @@ ffi.gc(foo, foo.free)
 --release the callback slot (or reuse it with foo:set(func)).
 foo:free()
 ~~~
+
+**NOTE**: In this implementation, the cpu arg is a global variable: if another cbframe
+callback is triggered from inside a cbframe callback, the original cpu state will get trashed.
+It's up to you to prevent this by saving the original cpu state before calling the callback-triggering
+inner function, and restoring it before the parent function returns.

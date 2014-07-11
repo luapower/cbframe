@@ -108,7 +108,7 @@ function cbframe.dump(cpu, opt_)
 	if opt_ then for k,v in pairs(opt_) do opt[k] = v end end
 
 	local function out_qwords(qwords)
-		local fmt = '%-8s 0x%08X%08X %12s %16d %16d %12s %12s'
+		local fmt = '%-8s 0x%08x%08x %12s %16d %16d %12s %12s'
 		outln(_(            '%-8s %-18s %12s %16s %16s %12s %12s',
 			'', 'hex', 'double', 'int32.1', 'int32.0', 'float.1', 'float.0'))
 		hr()
@@ -126,7 +126,7 @@ function cbframe.dump(cpu, opt_)
 	end
 
 	local function out_dwords(dwords)
-		local fmt = '%-8s 0x%08X %16d %19s %8d %8d %4d %4d %4d %4d'
+		local fmt = '%-8s 0x%08x %16d %19s %8d %8d %4d %4d %4d %4d'
 		outln(_(       '%-8s   %-8s %16s %19s %8s %8s %4s %4s %4s %4s',
 			'', 'hex', 'int64', 'float', 'int16.1', 'int16.0', 'b3', 'b2', 'b1', 'b0'))
 		hr()
