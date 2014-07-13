@@ -19,10 +19,18 @@ rules for your platform/compiler.
 
 [full state of the CPU]: https://github.com/luapower/cbframe/blob/master/cbframe_x86_h.lua
 
-You can use it to implement a full ABI in pure Lua with the help of [ffi_reflect].
+You can use it to implement a full ABI in pure Lua by leveraging [ffi_reflect].
 Or, if you only have a few problematic callbacks that you need to work out, like I do, you can
 discover where the arguments are on a case-by-case basis by inspecting the CPU state via
 `cbframe.dump()`.
+
+ABI manuals:
+
+  * [Windows / x86](http://msdn.microsoft.com/en-us/library/k2b2ssfy.aspx)
+  * [Windows / x64](http://msdn.microsoft.com/en-us/library/7kcdt6fy.aspx)
+  * [OSX / x86](https://developer.apple.com/library/mac/documentation/DeveloperTools/Conceptual/LowLevelABI/130-IA-32_Function_Calling_Conventions/IA32.html)
+  * [Linux & OSX / x64](http://www.x86-64.org/documentation/abi.pdf)
+
 If in doubt, use [Agner Fog](http://www.agner.org/optimize/calling_conventions.pdf) (ABIs are a bitch).
 
 Like ffi callbacks, cbframes are limited resources. You can create up to 1024
