@@ -8,9 +8,9 @@ require'cbframe_x86_h'
 |.actionlist actions
 |.globalnames globalnames
 
-local slotnum = 1024                         --max. number of live callbacks
-g_cpustate = ffi.new'D_CPUSTATE[1]'          --global temp. memory for dumping the CPU state
-g_callbacks = ffi.new('void*[?]', slotnum)   --global array of ffi callback pointers
+local slotnum = 1024                               --max. number of live callbacks
+local g_cpustate = ffi.new'D_CPUSTATE[1]'          --global temp. memory for dumping the CPU state
+local g_callbacks = ffi.new('void*[?]', slotnum)   --global array of ffi callback pointers
 
 local Dst, globals = dasm.new(actions)
 
@@ -171,7 +171,7 @@ end
 
 --build the code and get the globals
 
-g_buf, g_sz = Dst:build() --dasm.dump(g_buf, g_sz)
+local g_buf, g_sz = Dst:build() --dasm.dump(g_buf, g_sz)
 local globals = dasm.globals(globals, globalnames)
 
 --raw float converter
