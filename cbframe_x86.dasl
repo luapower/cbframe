@@ -11,6 +11,7 @@ require'cbframe_x86_h'
 local slotnum = 1024                               --max. number of live callbacks
 local g_cpustate = ffi.new'D_CPUSTATE[1]'          --global temp. memory for dumping the CPU state
 local g_callbacks = ffi.new('void*[?]', slotnum)   --global array of ffi callback pointers
+dasm.g_cpustate = g_cpustate                       --pin it because it's only referenced in asm!
 
 local Dst, globals = dasm.new(actions)
 
