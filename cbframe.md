@@ -56,7 +56,6 @@ ffi.gc(foo, foo.free)
 foo:free()
 ~~~
 
-**NOTE**: In this implementation, the cpu arg is a global variable: if another cbframe
-callback is triggered from inside a cbframe callback, the original cpu state will get trashed.
-It's up to you to prevent this by saving the original cpu state before calling the callback-triggering
-inner function, and restoring it before the parent function returns.
+**NOTE**: In this implementation, the cpu arg is a 64-deep global stack,
+which limits callback recursion depth to 64. There's no protection against
+stack overflows.

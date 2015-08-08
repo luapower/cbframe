@@ -9,9 +9,11 @@ require'cbframe_x86_h'
 |.globalnames globalnames
 
 local slotnum = 1024                               --max. number of live callbacks
-local g_cpustate = ffi.new'D_CPUSTATE[1]'          --global temp. memory for dumping the CPU state
+local g_cpustate = ffi.new'D_CPUSTATE[64]'         --global stack for dumping the CPU state ~42KB
+local g_cpustate_top = ffi.new('D_CPUSTATE*[1]', g_cpustate) --cpu state stack top pointer
 local g_callbacks = ffi.new('void*[?]', slotnum)   --global array of ffi callback pointers
 dasm.g_cpustate = g_cpustate                       --pin it because it's only referenced in asm!
+dasm.g_cpustate_top = g_cpustate_top               --pin it because it's only referenced in asm!
 
 local Dst, globals = dasm.new(actions)
 
@@ -54,7 +56,8 @@ local Dst, globals = dasm.new(actions)
 |	pushfd           --eflags
 |	push eax         --initial eax
 |	.type CPU, D_CPUSTATE, eax
-|	mov eax, g_cpustate --eax = CPU base address
+|	mov eax, [g_cpustate_top] --eax = CPU base address
+|	add dword [g_cpustate_top], ffi.sizeof'D_CPUSTATE'
 |	--save CPU state and pop callback slot number in ecx
 |	mov CPU.ECX, ecx
 |	mov CPU.EDX, edx
@@ -79,6 +82,7 @@ local Dst, globals = dasm.new(actions)
 |	mov ebp, esp
 |	push eax         --arg 1 = CPU
 |	call dword [edx]
+|	sub dword [g_cpustate_top], ffi.sizeof'D_CPUSTATE'
 |	pop eax          --restore CPU base address
 |	--load CPU state
 |	fxrstor CPU.FCW  --load FPU/MMX and SSE state in one shot
@@ -96,7 +100,8 @@ local Dst, globals = dasm.new(actions)
 |	pushfq           --eflags
 |	push rax         --initiial rax
 |	.type CPU, D_CPUSTATE, rax
-|	mov64 rax, g_cpustate --rax = CPU base address
+|	mov64 rax, [g_cpustate_top] --rax = CPU base address
+|	add qword [g_cpustate_top], ffi.sizeof'D_CPUSTATE'
 |	--save CPU state and pop callback slot number in rcx
 |	mov CPU.RBX, rbx
 |	mov CPU.RCX, rcx
@@ -138,6 +143,7 @@ local Dst, globals = dasm.new(actions)
 |	mov rdi, rax     --ptr arg 1 in rdi
 |	call qword [rdx]
 |.endif
+|	sub qword [g_cpustate_top], ffi.sizeof'D_CPUSTATE'
 |	pop rax          --restore CPU base address
 |	--load CPU state
 |	fxrstor CPU.FCW  --load FPU/MMX and SSE state in one shot
