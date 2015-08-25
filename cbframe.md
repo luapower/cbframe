@@ -1,5 +1,4 @@
 ---
-project: cbframe
 tagline: callback frames for luajit
 ---
 
